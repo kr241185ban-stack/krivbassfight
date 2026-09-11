@@ -141,7 +141,7 @@ button{font:inherit}
     <section class="screen active" id="home">
       <div class="home-top">
         <div class="avatar">
-          <img src="/webapp/images/logo.png" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;" onerror="this.onerror=null; this.src='https://via.placeholder.com/58?text=🥋';" alt="Рукопашник">
+          <img src="/images/logo.png" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;" onerror="this.onerror=null; this.src='https://via.placeholder.com/58?text=🥋';" alt="Рукопашник">
         </div>
         <div class="user">
           <b>Завантаження... ⏳</b>
@@ -479,7 +479,7 @@ button{font:inherit}
     }
 
     // 🎯 Базова адреса вашого REST API бекенду на сервері UkrLine
-const API_BASE_URL = 'http://149.5.210.10:8000';
+const API_BASE_URL = '';
 
 async function apiCall(endpoint, method = 'GET', body = null) {
     const headers = { 'Content-Type': 'application/json' };
