@@ -52,7 +52,7 @@ async def cmd_start(message: Message, state: FSMContext):
                         ath_id = ath.get("athlete_id") or ath.get("Athlete ID")
                         ath_name = ath.get("full_name") or ath.get("ПІБ") or "Спортсмен"
                         
-                        web_app_url = f"https://tredy-46-211-3-215.free.pinggy.net/webapp/index.html?tg_id={user_tg_id}&athlete_id={ath_id}"
+                        web_app_url = f"https://krivbassfight-dkwf8rzex-krivbassfight.vercel.app/index.html?tg_id={user_tg_id}&athlete_id={ath_id}"
                         builder.button(
                             text=f"👦 {ath_name}",
                             web_app=WebAppInfo(url=web_app_url)
@@ -67,7 +67,7 @@ async def cmd_start(message: Message, state: FSMContext):
                     return
 
             # 🎯 ЯКЩО ЦЕ ОДИН СПОРТСМЕН, ТРЕНЕР АБО АДМІН — ЗВИЧАЙНА КНОПКА
-            web_app_url = f"https://tredy-46-211-3-215.free.pinggy.net/webapp/index.html?tg_id={user_tg_id}"
+            web_app_url = f"https://krivbassfight-dkwf8rzex-krivbassfight.vercel.app/index.html?tg_id={user_tg_id}"
             if hasattr(user, 'athlete_id') and user.athlete_id:
                 web_app_url += f"&athlete_id={user.athlete_id}"
 
@@ -123,7 +123,7 @@ async def process_role_choice(message: Message, state: FSMContext):
 
     await state.update_data(chosen_role=role)
     await message.answer(
-        "Введіть повне **ПІБ спортсмена** (наприклад: *Петренко Олександр Іванович*):",
+        "Введіть повне **ПІБ спортсмена** (наприклад: *Бобков Олександр Миколайович*):",
         reply_markup=ReplyKeyboardRemove(),
         parse_mode="Markdown"
     )
