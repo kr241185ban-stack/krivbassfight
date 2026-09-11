@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "http://149.5.210.10:8000/api/:path*"
+      "destination": "https://krivbassfight-api.onrender.com/api/:path*"
     }
   ]
 }
