@@ -478,24 +478,34 @@ button{font:inherit}
         return endpoint;
     }
 
-    async function apiCall(endpoint, method = 'GET', body = null) {
-        const headers = { 'Content-Type': 'application/json' };
-        if (initData) headers['x-telegram-init-data'] = initData;
-        if (telegramId) headers['x-telegram-id'] = telegramId;
+    // 🎯 Базова адреса вашого REST API бекенду на сервері UkrLine
+const API_BASE_URL = 'http://149.5.210.10:8000';
 
-        const options = { method, headers };
-        if (body) options.body = JSON.stringify(body);
+async function apiCall(endpoint, method = 'GET', body = null) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (initData) headers['x-telegram-init-data'] = initData;
+    if (telegramId) headers['x-telegram-id'] = telegramId;
 
-        try {
-            const response = await fetch(endpoint, options);
-            const data = await response.json();
-            if (!response.ok) return null;
-            return data;
-        } catch (error) {
-            console.error('Помилка виконання виклику API:', error);
+    const options = { method, headers };
+    if (body) options.body = JSON.stringify(body);
+
+    try {
+        // Формуємо повне посилання до UkrLine VPS замість відносного шляху Vercel
+        const fullUrl = endpoint.startsWith('http') ? endpoint : `${API_BASE_URL}${endpoint}`;
+        const response = await fetch(fullUrl, options);
+        
+        if (!response.ok) {
+            console.error(`HTTP error! Status: ${response.status} for URL: ${fullUrl}`);
             return null;
         }
+        
+        const data = await response.json();
+        return data;
+    } catch (error) {
+        console.error('Помилка виконання виклику API:', error);
+        return null;
     }
+}
 
     function getDirectImageUrl(url) {
         if (!url) return '';
