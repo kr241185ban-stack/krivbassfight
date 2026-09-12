@@ -851,22 +851,39 @@ class SheetsRepository:
 
     def get_athletes_by_telegram_id(self, telegram_id: int | str) -> list[dict]:
         """
-        Отримує список усіх спортсменів, прив'язаних до Telegram ID (спортсмена або батьків).
+        Отримує список усіх спортсменів, прив'язаних до Telegram ID,
+        підтягуючи їхні справжні ПІБ з аркуша 'Спортсмени'.
         """
         tg_id_str = str(telegram_id).strip()
-        records = self._get_cached_records("Користувачі")
+        user_records = self._get_cached_records("Користувачі")
+        athlete_records = self._get_cached_records("Спортсмени")
         
+        # Створюємо словник: Athlete ID -> ПІБ з аркуша "Спортсмени"
+        athlete_names = {}
+        for a in athlete_records:
+            ath_id = str(a.get("Athlete ID") or "").strip()
+            pib = str(a.get("ПІБ") or "Спортсмен").strip()
+            if ath_id:
+                athlete_names[normalize_id(ath_id)] = pib
+
         athletes = []
-        for r in records:
+        seen_ids = set()
+
+        for r in user_records:
             user_tg = str(r.get("Telegram ID") or r.get("telegram_id") or "").strip().split('.')[0]
-            rep_tg = str(r.get("Representative Telegram ID") or r.get("rep_telegram_id") or "").strip().split('.')[0]
             status = str(r.get("Статус") or r.get("status") or "").strip().lower()
 
-            if status == "активний" and (user_tg == tg_id_str or rep_tg == tg_id_str):
-                athletes.append({
-                    "athlete_id": str(r.get("Athlete ID") or r.get("athlete_id") or r.get("ID") or "").strip(),
-                    "full_name": str(r.get("ПІБ") or r.get("full_name") or r.get("ФИО") or "Спортсмен").strip()
-                })
+            if status == "активний" and user_tg == tg_id_str:
+                ath_id_raw = str(r.get("Athlete ID") or r.get("athlete_id") or "").strip()
+                norm_ath_id = normalize_id(ath_id_raw)
+
+                if ath_id_raw and norm_ath_id not in seen_ids:
+                    seen_ids.add(norm_ath_id)
+                    full_name = athlete_names.get(norm_ath_id) or "Спортсмен"
+                    athletes.append({
+                        "athlete_id": ath_id_raw,
+                        "full_name": full_name
+                    })
         return athletes
 
 sheets_repo = SheetsRepository()
