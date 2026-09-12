@@ -324,6 +324,60 @@ async def handle_private_photo_from_athlete(message: Message):
 
 
 # ==========================================
+# ПРИЙОМ ВІДЕО ТА КРУЖЕЧКІВ ВІД СПОРТСМЕНА
+# ==========================================
+@dp.message(F.chat.type == "private", F.video | F.video_note)
+async def handle_private_video_from_athlete(message: Message):
+    user_tg_id = message.from_user.id
+
+    user = await asyncio.to_thread(auth_service.get_user_by_telegram_id, user_tg_id)
+    if not user or str(user.status).strip().lower() != "активний":
+        await message.answer("⚠️ Ваш акаунт не знайдено або він неактивний.")
+        return
+
+    sender_name = "Спортсмен"
+    group_name = "Основна"
+    athlete_id = user.athlete_id or "-"
+
+    if user.athlete_id:
+        profile = await asyncio.to_thread(sheets_repo.get_athlete_profile_details, user.athlete_id)
+        sender_name = profile.get("full_name", "Спортсмен")
+        group_name = profile.get("group_name", "Основна")
+
+    user_caption = message.caption or ""
+    caption_text = (
+        f"🎥 <b>Нове відео від спортсмена!</b>\n\n"
+        f"👤 <b>Від кого:</b> {sender_name}\n"
+        f"♧ <b>Група:</b> {group_name}\n"
+        f"🆔 <b>Athlete ID:</b> <code>{athlete_id}</code>\n"
+        f"📱 <b>TG ID:</b> <code>{user_tg_id}</code>\n"
+    )
+    if user_caption:
+        caption_text += f"\n💬 <b>Коментар:</b> {user_caption}\n"
+
+    caption_text += "\n<i>💡 Щоб відповісти спортсмену, зробіть Reply (Відповісти) на це повідомлення.</i>"
+
+    try:
+        if message.video:
+            # Звичайне відео з підписом
+            await bot.send_video(
+                chat_id=int(config.trainer_chat_id),
+                video=message.video.file_id,
+                caption=caption_text,
+                parse_mode="HTML"
+            )
+        elif message.video_note:
+            # Відеоповідомлення (кружечок) — спочатку текстовий підпис, потім кружечок
+            await bot.send_message(chat_id=int(config.trainer_chat_id), text=caption_text, parse_mode="HTML")
+            await bot.send_video_note(chat_id=int(config.trainer_chat_id), video_note=message.video_note.file_id)
+
+        await message.reply("✅ <b>Дякуємо!</b> Твоє відео успішно передано тренерському складу 🎥", parse_mode="HTML")
+    except Exception as e:
+        print(f"Помилка відправки відео тренерам: {e}")
+        await message.reply("❌ Не вдалося передати відео тренерам.")
+
+
+# ==========================================
 # 6. ОДНОЧАСНИЙ ЗАПУСК БОТА ТА FASTAPI
 # ==========================================
 async def main():
