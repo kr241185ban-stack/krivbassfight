@@ -44,6 +44,7 @@ def extract_telegram_id(init_data: str) -> int:
 
 @app.get("/api/v1/me")
 async def api_get_my_profile(
+    athlete_id: Optional[str] = None,
     x_telegram_init_data: str = Header(None),
     x_telegram_id: str = Header(None)
 ):
@@ -68,13 +69,16 @@ async def api_get_my_profile(
     trainer_name = "Адміністрація"
     kil_stiker = "0"
 
-    if user.athlete_id:
-        athlete = sheets_repo.get_athlete_by_id(user.athlete_id)
+    # Якщо у параметрах URL передано athlete_id — беремо його, інакше з профілю
+    target_athlete_id = athlete_id or user.athlete_id
+
+    if target_athlete_id:
+        athlete = sheets_repo.get_athlete_by_id(target_athlete_id)
         if athlete:
             name = athlete.full_name
             group_name = sheets_repo.get_group_name_by_id(athlete.group_id)
             trainer_name = sheets_repo.get_trainer_name_by_id(athlete.trainer_id)
-            kil_stiker = sheets_repo.get_athlete_sticker_count(user.athlete_id)
+            kil_stiker = sheets_repo.get_athlete_sticker_count(target_athlete_id)
     elif user.role == "admin":
         name = "Адміністратор"
         group_name = "Всі групи"
@@ -91,7 +95,7 @@ async def api_get_my_profile(
         "name": name,
         "group_name": group_name,
         "trainer_name": trainer_name,
-        "athlete_id": user.athlete_id,
+        "athlete_id": target_athlete_id,
         "trainer_id": user.trainer_id,
         "representative_id": user.representative_id,
         "kil_stiker": kil_stiker
