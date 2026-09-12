@@ -591,6 +591,11 @@ async function apiCall(endpoint, method = 'GET', body = null) {
             currentUserRole = (userData.role || '').toLowerCase();
             window.currentUserRole = currentUserRole;
 
+            // Запам'ятовуємо ID конкретного обраного спортсмена для всіх подальших запитів
+            if (userData.athlete_id) {
+                currentAthleteId = userData.athlete_id;
+            }
+
             if (userDetailsContainer) {
                 userDetailsContainer.innerHTML = `
                     <b>${userData.name} 👋</b>
