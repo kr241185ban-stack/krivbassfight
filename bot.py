@@ -38,20 +38,18 @@ async def cmd_start(message: Message, state: FSMContext):
     try:
         user = await asyncio.to_thread(auth_service.get_user_by_telegram_id, user_tg_id)
 
-        # Якщо користувач є і його статус "Активний"
         if user and str(user.status).strip().lower() == "активний":
             
-            # 🎯 ПЕРЕВІРКА ДЛЯ ПРЕДСТАВНИКІВ (БАТЬКІВ) НА ДЕКІЛЬКА ДІТЕЙ
+            # 🎯 ПЕРЕВІРКА ДЛЯ ПРЕДСТАВНИКІВ/БАТЬКІВ
             if user.role in ["representative", "parent"]:
                 athletes = await asyncio.to_thread(sheets_repo.get_athletes_by_telegram_id, user_tg_id)
                 
-                # Якщо у батьків 2 або більше дітей — відправляємо Inline-кнопки
-                if athletes and len(athletes) > 1:
+                if athletes:
                     builder = InlineKeyboardBuilder()
                     
                     for ath in athletes:
-                        ath_id = ath.get("athlete_id") or ath.get("Athlete ID")
-                        ath_name = ath.get("full_name") or ath.get("ПІБ") or "Спортсмен"
+                        ath_id = ath.get("athlete_id")
+                        ath_name = ath.get("full_name") or "Спортсмен"
                         
                         web_app_url = f"https://krivbassfight.vercel.app/index.html?tg_id={user_tg_id}&athlete_id={ath_id}"
                         builder.button(
@@ -59,7 +57,7 @@ async def cmd_start(message: Message, state: FSMContext):
                             web_app=WebAppInfo(url=web_app_url)
                         )
                     
-                    builder.adjust(1) # Кнопки одна під одною
+                    builder.adjust(1)
                     await message.answer(
                         "👨‍👩‍👦 **Вітаємо! Оберіть спортсмена для перегляду кабінету:**",
                         reply_markup=builder.as_markup(),
@@ -67,7 +65,7 @@ async def cmd_start(message: Message, state: FSMContext):
                     )
                     return
 
-            # 🎯 ЯКЩО ЦЕ ОДИН СПОРТСМЕН, ТРЕНЕР АБО АДМІН — ЗВИЧАЙНА КНОПКА
+            # 🎯 ДЛЯ ОДНОГО СПОРТСМЕНА, ТРЕНЕРА АБО АДМІНА
             web_app_url = f"https://krivbassfight.vercel.app/index.html?tg_id={user_tg_id}"
             if hasattr(user, 'athlete_id') and user.athlete_id:
                 web_app_url += f"&athlete_id={user.athlete_id}"
@@ -78,19 +76,16 @@ async def cmd_start(message: Message, state: FSMContext):
             role_messages = {
                 "admin": "Ви зайшли як **Адміністратор**.",
                 "trainer": "Вітаємо, тренер!",
-                "representative": "Вітаємо! Натисніть кнопку нижче для входу.",
                 "athlete": "Вітаємо тебе! Швиденько заходь у свій кабінет!"
             }
             welcome_text = role_messages.get(user.role, "Вітаємо у Рукопашнику!")
             await message.answer(welcome_text, reply_markup=keyboard, parse_mode="Markdown")
             return
 
-        # Якщо користувач є, але статус "Очікує"
         if user and str(user.status).strip().lower() in ["очікує", "pending"]:
             await message.answer("⏳ Ваша заявка скоро активується. Очікуйте підтвердження та повідомлення від нас!")
             return
 
-        # Якщо користувача немає в БД — розпочинаємо реєстрацію
         role_keyboard = ReplyKeyboardMarkup(
             keyboard=[
                 [KeyboardButton(text="👦 Спортсмен")],
