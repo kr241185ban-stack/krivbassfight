@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-# інші ваші імпорти...
 from typing import Optional
 import os
 import re
@@ -100,36 +99,6 @@ class SheetsRepository:
             print(f"Помилка зчитування листа '{worksheet_name}': {e}")
             return []
 
-            # Используем get_all_values() вместо get_all_records() для обхода дубликатов заголовков
-            values = ws.get_all_values()
-            if not values or len(values) < 2:
-                return []
-
-            headers = [str(h).strip() for h in values[0]]
-            records = []
-
-            for row in values[1:]:
-                # Пропускаем полностью пустые строки
-                if not any(str(cell).strip() for cell in row):
-                    continue
-
-                record = {}
-                for idx, header in enumerate(headers):
-                    # Добавляем значение только если заголовок не пустой
-                    if header:
-                        record[header] = str(row[idx]).strip() if idx < len(row) else ""
-                records.append(record)
-
-            # Обновляем кэш
-            if not hasattr(self, "_cache"):
-                self._cache = {}
-            self._cache[worksheet_name] = {"time": now, "data": records}
-
-            return records
-        except Exception as e:
-            print(f"Помилка зчитування листа '{worksheet_name}': {e}")
-            return []
-
     def invalidate_cache(self, sheet_name: str = None):
         """Очищення кешу після виконання записів"""
         if sheet_name:
@@ -143,11 +112,9 @@ class SheetsRepository:
         target_id_str = str(telegram_id).strip()
 
         for row in records:
-            # Гнучкий пошук колонки Telegram ID (незалежно від пробілів та регістру)
             raw_tg_id = ""
             for key, val in row.items():
                 if str(key).strip().lower() in ["telegram id", "telegram_id", "tg_id", "telegramid"]:
-                    # Очищаємо від float-формату (наприклад 413475037.0) та пробілів
                     raw_tg_id = str(val).strip().split('.')[0]
                     break
 
@@ -240,14 +207,11 @@ class SheetsRepository:
         """Додавання або оновлення оплати в Google Таблиці з універсальним виявленням gspread"""
         try:
             ws = None
-            
-            # 1. Перевірка наявних методів класу
             if hasattr(self, "get_worksheet") and callable(getattr(self, "get_worksheet")):
                 ws = self.get_worksheet("Оплати")
             elif hasattr(self, "_get_worksheet") and callable(getattr(self, "_get_worksheet")):
                 ws = self._get_worksheet("Оплати")
             
-            # 2. Динамічний пошук об'єкта зі збереженим підключенням до Таблиці
             if not ws:
                 for attr_name, attr_val in self.__dict__.items():
                     if attr_val is not None and hasattr(attr_val, "worksheet") and callable(getattr(attr_val, "worksheet")):
@@ -257,7 +221,6 @@ class SheetsRepository:
                         except Exception:
                             continue
 
-            # 3. Якщо підключення не знайдено через звичайні атрибути — виводимо список доступних полів для діагностики
             if not ws:
                 available_attrs = list(self.__dict__.keys())
                 raise AttributeError(f"Не вдалося знайти підключення до Google Таблиці. Наявні атрибути у SheetsRepository: {available_attrs}")
@@ -287,7 +250,6 @@ class SheetsRepository:
             else:
                 ws.append_row(new_row)
 
-            # Інвалідація локального кєшу
             if hasattr(self, "_cache") and isinstance(self._cache, dict):
                 self._cache.pop("Оплати", None)
 
@@ -295,6 +257,61 @@ class SheetsRepository:
         except Exception as e:
             print(f"Помилка запису в лист 'Оплати': {e}")
             raise e
+
+    def get_group_payments_status(self, group_id: str, period: str) -> dict:
+        """
+        Звіряє список активних спортсменів групи з аркушем 'Оплати' за обраний період (наприклад: '09.2026').
+        """
+        athlete_records = self._get_cached_records("Спортсмени")
+        payment_records = self._get_cached_records("Оплати")
+
+        target_group_norm = normalize_id(group_id)
+
+        # Фільтруємо спортсменів потрібної групи
+        group_athletes = []
+        for a in athlete_records:
+            g_id = str(a.get("Group ID") or a.get("group_id") or a.get("Група") or "").strip()
+            if normalize_id(g_id) == target_group_norm or g_id.lower() == str(group_id).strip().lower():
+                group_athletes.append(a)
+
+        # Карта оплат за вказаний період
+        payments_map = {}
+        for p in payment_records:
+            p_period = str(p.get("Період") or p.get("period") or "").strip()
+            p_ath_id = normalize_id(str(p.get("Athlete ID") or p.get("athlete_id") or ""))
+            p_status = str(p.get("Статус") or p.get("status") or "").strip().lower()
+
+            if p_period == period and p_status in ["paid", "сплачено", "оплачено"]:
+                payments_map[p_ath_id] = p
+
+        result_list = []
+        paid_count = 0
+
+        for ath in group_athletes:
+            ath_id = str(ath.get("Athlete ID") or ath.get("athlete_id") or "").strip()
+            norm_id = normalize_id(ath_id)
+            full_name = str(ath.get("ПІБ") or ath.get("full_name") or "Спортсмен").strip()
+
+            is_paid = norm_id in payments_map
+            if is_paid:
+                paid_count += 1
+
+            p_info = payments_map.get(norm_id, {})
+            result_list.append({
+                "athlete_id": ath_id,
+                "full_name": full_name,
+                "status": "Paid" if is_paid else "Unpaid",
+                "payment_date": p_info.get("Дата оплати") or p_info.get("payment_date") or "" if is_paid else None,
+                "amount": p_info.get("Сума") or p_info.get("amount") or "" if is_paid else None
+            })
+
+        return {
+            "period": period,
+            "total": len(group_athletes),
+            "paid_count": paid_count,
+            "unpaid_count": len(group_athletes) - paid_count,
+            "athletes": result_list
+        }
 
     def get_tasks_for_athlete(self, athlete_id: str):
         """Збирає завдання з кешу 'Опис завдання' та 'Досягнення'"""
@@ -669,7 +686,6 @@ class SheetsRepository:
                 dil_raw = str(item.get("diligence") or "").strip()
                 tec_raw = str(item.get("technique") or "").strip()
 
-                # 1. Формування запису у "Відвідування"
                 if att_status in ["Присутній", "Відсутній"]:
                     att_rows_to_append.append([
                         str(uuid.uuid4())[:8],
@@ -681,7 +697,6 @@ class SheetsRepository:
                         "Пакетна відмітка"
                     ])
 
-                # 2. Перетворення оцінок у числовий тип int (або порожній рядок, якщо не вибрано)
                 beh_num = int(beh_raw) if beh_raw.isdigit() and 1 <= int(beh_raw) <= 5 else ""
                 dil_num = int(dil_raw) if dil_raw.isdigit() and 1 <= int(dil_raw) <= 5 else ""
                 tec_num = int(tec_raw) if tec_raw.isdigit() and 1 <= int(tec_raw) <= 5 else ""
@@ -689,7 +704,7 @@ class SheetsRepository:
                 scores = [v for v in [beh_num, dil_num, tec_num] if isinstance(v, int)]
 
                 if scores:
-                    avg_score = round(sum(scores) / len(scores), 2)  # Передаємо як float
+                    avg_score = round(sum(scores) / len(scores), 2)
 
                     eval_rows_to_append.append([
                         str(uuid.uuid4())[:8],
@@ -700,11 +715,10 @@ class SheetsRepository:
                         beh_num,
                         dil_num,
                         tec_num,
-                        avg_score,  # Числовий формат для підрахунків у таблиці
+                        avg_score,
                         "Пакетна оцінка"
                     ])
 
-            # Використовуємо value_input_option='USER_ENTERED' для розпізнавання типів у Google Sheets
             if att_rows_to_append:
                 att_ws.append_rows(att_rows_to_append, value_input_option='USER_ENTERED')
                 self.invalidate_cache("Відвідування")
@@ -731,7 +745,6 @@ class SheetsRepository:
             if not target_athlete:
                 return {}
 
-            # Отримуємо назву групи та ПІБ тренера
             group_id = str(target_athlete.get("Group ID") or "").strip()
             trainer_id = str(target_athlete.get("Trainer ID") or "").strip()
 
@@ -787,17 +800,14 @@ class SheetsRepository:
             if not row_idx:
                 return False
 
-            # Оновлюємо VAGA
             if vaga is not None and "VAGA" in headers:
                 col_idx = headers.index("VAGA") + 1
                 ws.update_cell(row_idx, col_idx, str(vaga))
 
-            # Оновлюємо Group ID
             if group_id is not None and "Group ID" in headers:
                 col_idx = headers.index("Group ID") + 1
                 ws.update_cell(row_idx, col_idx, str(group_id))
 
-            # Очищуємо кєш
             if hasattr(self, "_cache") and isinstance(self._cache, dict):
                 self._cache.pop("Спортсмени", None)
 
@@ -805,8 +815,6 @@ class SheetsRepository:
         except Exception as e:
             print(f"Помилка оновлення профілю в БД: {e}")
             raise e
-
-# ... твои существующие методы (_connect, _get_cached_records и т.д.) ...
 
     def find_athlete_by_pib_and_dob(self, pib: str, dob: str) -> Optional[dict]:
         """Пошук спортсмена в БД за точною відповідністю ПІБ та дати народження"""
@@ -848,7 +856,6 @@ class SheetsRepository:
             print(f"Помилка створення нового користувача: {e}")
             return False
 
-
     def get_athletes_by_telegram_id(self, telegram_id: int | str) -> list[dict]:
         """
         Отримує список усіх спортсменів, прив'язаних до Telegram ID,
@@ -858,7 +865,6 @@ class SheetsRepository:
         user_records = self._get_cached_records("Користувачі")
         athlete_records = self._get_cached_records("Спортсмени")
         
-        # Створюємо словник: Athlete ID -> ПІБ з аркуша "Спортсмени"
         athlete_names = {}
         for a in athlete_records:
             ath_id = str(a.get("Athlete ID") or "").strip()
