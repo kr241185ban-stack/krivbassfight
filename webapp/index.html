@@ -121,7 +121,6 @@ button{font:inherit}
 .sticker-modal-desc { font-size: 13px; color: var(--muted); margin-top: 6px; line-height: 1.4; }
 .sticker-modal-close { margin-top: 14px; width: 100%; padding: 10px; border: none; background: var(--bg); border-radius: 10px; font-weight: 600; color: var(--ink); cursor: pointer; }
 
-/* Чорно-білий ефект для знебарвлення незавершеного стікера */
 .sticker-preview-gray { filter: grayscale(100%); opacity: 0.75; }
 .task{background:#fff;border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);padding:13px;margin-bottom:9px;cursor:pointer;transition:transform 0.15s ease}
 .task:active{transform:scale(0.98)}
@@ -133,6 +132,13 @@ button{font:inherit}
 .nav{border:0;background:none;color:#68717c;font-size:9px}.nav .ni{display:block;font-size:21px;line-height:27px}.nav.active{color:#0875d8;font-weight:700}
 .payment-active.unpaid { border-color: #f8b4b4; background: #fde8e8; color: #c81e1e; }
 .payment-active.unpaid small { color: #9b1c1c; }
+
+/* Кастомний стиль таблиці/списку для оплат групи */
+.pay-group-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: #f8fafc; border-radius: 10px; border: 1px solid var(--line); font-size: 13px; }
+.pay-group-item b { font-size: 13px; color: var(--ink); }
+.pay-group-item .btn-remind { background: #eaf3fd; color: #0067c9; border: 1px solid #bce0fd; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; }
+.pay-group-item .btn-remind:active { transform: scale(0.95); }
+
 @media(min-width:600px){body{padding:20px}.app{height:900px;border-radius:28px}}
 </style>
 </head>
@@ -334,6 +340,38 @@ button{font:inherit}
 
     <!-- ОПЛАТА -->
     <section class="screen" id="payment">
+      <!-- 💳 ТРЕНЕРСЬКА ПАНЕЛЬ: ОГЛЯД ОПЛАТ ГРУПИ ТА НАГАДУВАННЯ -->
+      <div id="trainer-group-payments-box" style="display:none; margin-bottom: 14px;">
+        <div class="section-card card">
+          <div class="section-title" style="margin-bottom:8px;">💳 Моніторинг оплат групи</div>
+          
+          <div style="display:flex; gap:8px; margin-bottom:10px;">
+            <select id="group-pay-group-select" onchange="loadGroupPaymentsStatus()" style="flex:1; padding:8px; border-radius:8px; border:1px solid var(--line); font-size:12px; font-weight:600;">
+              <option value="">Завантаження груп...</option>
+            </select>
+            <select id="group-pay-period-select" onchange="loadGroupPaymentsStatus()" style="flex:1; padding:8px; border-radius:8px; border:1px solid var(--line); font-size:12px; font-weight:600;">
+              <!-- Періоди заповнюються автоматично -->
+            </select>
+          </div>
+
+          <!-- Сводні лічильники -->
+          <div style="display:flex; gap:8px; margin-bottom:12px; text-align:center;">
+            <div style="flex:1; padding:8px; background:#e8f7ed; border-radius:8px; font-size:12px;">
+              Оплачено: <b id="cnt-paid" style="color:var(--green); font-size:14px;">0</b>
+            </div>
+            <div style="flex:1; padding:8px; background:#fde8e8; border-radius:8px; font-size:12px;">
+              Боржники: <b id="cnt-unpaid" style="color:var(--red); font-size:14px;">0</b>
+            </div>
+          </div>
+
+          <!-- Список спортсменів зі статусами -->
+          <div id="group-payments-list" style="display:flex; flex-direction:column; gap:6px;">
+            <!-- Динамічно заповнюється -->
+          </div>
+        </div>
+      </div>
+
+      <!-- ФОРМА ВИБОРУ СПОРТСМЕНА ТА ВНЕСЕННЯ РУЧНОЇ ОПЛАТИ (ДЛЯ ТРЕНЕРА) -->
       <div id="trainer-pay-select-box" style="display:none; margin-bottom: 12px;">
         <div class="section-card card">
           <div class="section-title">👤 Оберіть спортсмена</div>
@@ -343,14 +381,16 @@ button{font:inherit}
         </div>
       </div>
 
+      <!-- БАННЕР СТАТУСУ ДЛЯ СПОРТСМЕНА/БАДЬКІВ -->
       <div id="payment-banner" class="payment-active">
         <b id="pay-banner-title">Абонемент активний</b> <span id="pay-banner-icon">✓</span>
-        <small id="pay-banner-sub">Дякуємо за своечасну оплату!</small>
+        <small id="pay-banner-sub">Дякуємо за своєчасну оплату!</small>
       </div>
 
+      <!-- ФОРМА ВНЕСЕННЯ ОПЛАТИ -->
       <div id="trainer-payment-form" style="display:none; margin-top: 12px;">
         <div class="section-card card" style="background: #fdfefe; border: 1px solid #d0d7de;">
-          <div class="section-title">💳 Внесення оплати</div>
+          <div class="section-title">➕ Внесення оплати</div>
           
           <div style="margin-bottom: 10px;">
             <label style="font-size: 11px; color: var(--muted); font-weight: 600; display: block; margin-bottom: 4px;">Період</label>
@@ -513,8 +553,7 @@ button{font:inherit}
             
             const data = await response.json();
 
-            // 🔤 ГЛОБАЛЬНЕ АВТОМАТИЧНЕ СОРТУВАННЯ ЗА АЛФАВІТОМ:
-            // Якщо у відповіді є масив спортсменів (athletes) — сортуємо його за ПІБ
+            // ГЛОБАЛЬНЕ АВТОМАТИЧНЕ СОРТУВАННЯ ЗА АЛФАВІТОМ:
             if (data && Array.isArray(data.athletes)) {
                 data.athletes.sort((a, b) => {
                     const nameA = a.full_name || a.name || '';
@@ -523,7 +562,6 @@ button{font:inherit}
                 });
             }
 
-            // Якщо у відповіді є масив груп (groups) — також сортуємо за назвою
             if (data && Array.isArray(data.groups)) {
                 data.groups.sort((a, b) => {
                     const groupA = a.group_name || '';
@@ -1366,15 +1404,135 @@ button{font:inherit}
         }
     }
 
+    function initGroupPaymentsPeriodDropdown() {
+        const select = document.getElementById('group-pay-period-select');
+        if (!select) return;
+        select.innerHTML = '';
+
+        const months = ["Січень", "Лютий", "Березень", "Квітень", "Травень", "Червень", "Липень", "Серпень", "Вересень", "Жовтень", "Листопад", "Грудень"];
+        const now = new Date();
+        const currentYear = now.getFullYear();
+        const currentMonth = now.getMonth();
+
+        for (let i = -3; i <= 3; i++) {
+            let d = new Date(currentYear, currentMonth + i, 1);
+            let mNum = String(d.getMonth() + 1).padStart(2, '0');
+            let y = d.getFullYear();
+            let val = `${mNum}.${y}`; // Наприклад: "09.2026"
+            let label = `${months[d.getMonth()]} ${y}`;
+
+            const option = document.createElement('option');
+            option.value = val;
+            option.textContent = label;
+            if (i === 0) option.selected = true;
+            select.appendChild(option);
+        }
+    }
+
+    async function loadGroupPaymentsGroups() {
+        const select = document.getElementById('group-pay-group-select');
+        if (!select) return;
+
+        const data = await apiCall('/api/v1/my-groups');
+        select.innerHTML = '';
+
+        if (data && data.groups && data.groups.length > 0) {
+            data.groups.forEach(g => {
+                const opt = document.createElement('option');
+                opt.value = g.group_id;
+                opt.textContent = g.group_name;
+                select.appendChild(opt);
+            });
+            loadGroupPaymentsStatus();
+        } else {
+            select.innerHTML = '<option value="">Немає груп</option>';
+        }
+    }
+
+    async function loadGroupPaymentsStatus() {
+        const groupSelect = document.getElementById('group-pay-group-select');
+        const periodSelect = document.getElementById('group-pay-period-select');
+        const listContainer = document.getElementById('group-payments-list');
+
+        const groupId = groupSelect ? groupSelect.value : '';
+        const period = periodSelect ? periodSelect.value : '';
+
+        if (!groupId || !period) return;
+
+        if (listContainer) listContainer.innerHTML = '<div style="font-size:12px; color:var(--muted); text-align:center; padding:10px;">Завантаження статусу оплат...</div>';
+
+        const data = await apiCall(`/api/v1/payments/status?group_id=${encodeURIComponent(groupId)}&period=${encodeURIComponent(period)}`);
+
+        if (data && data.status === 'success') {
+            document.getElementById('cnt-paid').textContent = data.paid_count || 0;
+            document.getElementById('cnt-unpaid').textContent = data.unpaid_count || 0;
+
+            if (listContainer) {
+                listContainer.innerHTML = '';
+                const athletes = data.athletes || [];
+
+                if (athletes.length === 0) {
+                    listContainer.innerHTML = '<div style="font-size:12px; color:var(--muted); text-align:center; padding:10px;">У цій групі немає спортсменів</div>';
+                    return;
+                }
+
+                athletes.forEach(ath => {
+                    const isPaid = ath.status === 'Paid';
+                    const row = document.createElement('div');
+                    row.className = 'pay-group-item';
+
+                    row.innerHTML = `
+                        <div>
+                            <b>${ath.full_name}</b>
+                            <div style="font-size:10px; color:${isPaid ? 'var(--green)' : 'var(--red)'}; font-weight:600;">
+                                ${isPaid ? '✓ Сплачено' : '✕ Не сплачено'}
+                            </div>
+                        </div>
+                        <div>
+                            ${!isPaid 
+                                ? `<button class="btn-remind" onclick="sendPaymentReminder('${ath.athlete_id}', '${period}')">📲 Нагадати</button>` 
+                                : `<span style="color:var(--green); font-size:12px; font-weight:700;">✓</span>`}
+                        </div>
+                    `;
+                    listContainer.appendChild(row);
+                });
+            }
+        } else if (listContainer) {
+            listContainer.innerHTML = '<div style="font-size:12px; color:var(--red); text-align:center; padding:10px;">Не вдалося завантажити дані оплат</div>';
+        }
+    }
+
+    async function sendPaymentReminder(athleteId, period) {
+        if (!confirm('Надіслати персональне нагадування про оплату в Telegram?')) return;
+
+        const res = await apiCall('/api/v1/payments/remind', 'POST', {
+            athlete_id: athleteId,
+            period: period
+        });
+
+        if (res && res.status === 'success') {
+            alert('📲 Нагадування успішно надіслано родичу/спортсмену!');
+        } else {
+            alert('❌ Не вдалося надіслати нагадування. Перевірте статус користувача в БД.');
+        }
+    }
+
     async function initPaymentScreen() {
         const role = (currentUserRole || window.currentUserRole || '').toLowerCase();
         const selectBox = document.getElementById('trainer-pay-select-box');
         const formBox = document.getElementById('trainer-payment-form');
+        const groupPayBox = document.getElementById('trainer-group-payments-box');
         const selectEl = document.getElementById('pay-athlete-select');
+        const bannerEl = document.getElementById('payment-banner');
 
         if (role === 'trainer' || role === 'admin') {
             if (selectBox) selectBox.style.display = 'block';
             if (formBox) formBox.style.display = 'block';
+            if (groupPayBox) groupPayBox.style.display = 'block';
+            if (bannerEl) bannerEl.style.display = 'none';
+
+            initGroupPaymentsPeriodDropdown();
+            await loadGroupPaymentsGroups();
 
             if (selectEl && selectEl.options.length <= 1) {
                 selectEl.innerHTML = '<option value="">Завантаження списку...</option>';
@@ -1397,6 +1555,8 @@ button{font:inherit}
         } else {
             if (selectBox) selectBox.style.display = 'none';
             if (formBox) formBox.style.display = 'none';
+            if (groupPayBox) groupPayBox.style.display = 'none';
+            if (bannerEl) bannerEl.style.display = 'block';
         }
 
         const selectedAthId = selectEl ? selectEl.value : '';
@@ -1494,6 +1654,9 @@ button{font:inherit}
         if (res && res.status === 'success') {
             alert('Оплату успішно збережено в Google Таблицю!');
             loadPayments(athleteId);
+            if (currentUserRole === 'trainer' || currentUserRole === 'admin') {
+                loadGroupPaymentsStatus();
+            }
         } else {
             alert('Помилка при збереженні оплати. Спробуйте ще раз.');
         }
@@ -1685,11 +1848,9 @@ button{font:inherit}
                 tg.ready(); 
                 tg.expand();
 
-                // 🎨 Візуальне злиття коду шапки з фоном сторінки
                 if (tg.setHeaderColor) tg.setHeaderColor('#f4f5f7');
                 if (tg.setBackgroundColor) tg.setBackgroundColor('#f4f5f7');
 
-                // 🚀 Повноекранний режим для версій Telegram SDK 7.7+
                 if (tg.isVersionAtLeast && tg.isVersionAtLeast('7.7')) {
                     tg.requestFullscreen();
                 }
@@ -1703,7 +1864,6 @@ button{font:inherit}
         telegramId = urlParams.get('tg_id');
         currentAthleteId = urlParams.get('athlete_id');
 
-        // Автоматичний вібровідгук для всіх елементів Mini App
         document.addEventListener('click', (event) => {
             const button = event.target.closest('button, .sticker, .task, .achievement-card-green');
             if (button && window.Telegram?.WebApp?.HapticFeedback) {
