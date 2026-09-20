@@ -686,7 +686,7 @@ button{font:inherit}
         let picHtml = "🥋";
         if (rawSticker.startsWith('http://') || rawSticker.startsWith('https://')) {
             const imageUrl = getDirectImageUrl(rawSticker);
-            picHtml = `<img src="${imageUrl}" class="${grayClass}" style="width:150px; height:150px; object-fit:contain;" alt="Sticker">`;
+            picHtml = `<img src="${imageUrl}" class="${grayClass}" style="width:120px; height:120px; object-fit:contain;" alt="Sticker">`;
         } else {
             picHtml = `<span class="${grayClass}">${rawSticker}</span>`;
         }
