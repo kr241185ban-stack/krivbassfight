@@ -32,7 +32,6 @@ button{font:inherit}
   left: 0;
   right: 0;
   overflow: auto;
-  /* 🎯 Безпечний відступ зверху, щоб кнопки Telegram не закривали текст */
   padding: calc(70px + env(safe-area-inset-top, 0px)) 18px 22px;
 }
 .screen{display:none}.screen.active{display:block}
@@ -122,7 +121,10 @@ button{font:inherit}
 .sticker-modal-desc { font-size: 13px; color: var(--muted); margin-top: 6px; line-height: 1.4; }
 .sticker-modal-close { margin-top: 14px; width: 100%; padding: 10px; border: none; background: var(--bg); border-radius: 10px; font-weight: 600; color: var(--ink); cursor: pointer; }
 
-.task{background:#fff;border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);padding:13px;margin-bottom:9px}
+/* Чорно-білий ефект для знебарвлення незавершеного стікера */
+.sticker-preview-gray { filter: grayscale(100%); opacity: 0.75; }
+.task{background:#fff;border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);padding:13px;margin-bottom:9px;cursor:pointer;transition:transform 0.15s ease}
+.task:active{transform:scale(0.98)}
 .task-head{display:flex;align-items:center;gap:10px}.task-icon{width:48px;height:48px;border-radius:12px;background:#edf6ff;display:grid;place-items:center;font-size:28px}
 .task-head b{font-size:14px}.task-head small{display:block;color:var(--muted);font-size:11px;margin-top:3px}.task-status{margin-left:auto;font-size:10px;font-weight:700;padding:5px 7px;border-radius:8px;background:#fff3d6;color:#ad7600}.task-status.done{background:#e5f8ec;color:#148744}
 .task p{font-size:12px;color:#555e68;line-height:1.4;margin:10px 0}.progress{height:7px;background:#e7eaed;border-radius:10px;overflow:hidden}.progress span{display:block;height:100%;width:65%;background:#1685df;border-radius:10px}.task-foot{display:flex;justify-content:space-between;margin-top:8px;font-size:10px;color:#78818b}
@@ -453,6 +455,17 @@ button{font:inherit}
     </div>
   </div>
 
+  <!-- МОДАЛЬНЕ ВІКНО ЗАВДАННЯ -->
+  <div class="sticker-modal-overlay" id="taskModal" onclick="closeTaskModal()">
+    <div class="sticker-modal-card" onclick="event.stopPropagation()">
+      <div id="modalTaskPic" style="width:100%; height:110px; display:flex; align-items:center; justify-content:center; font-size:64px; margin-bottom:10px;"></div>
+      <div class="sticker-modal-title" id="modalTaskTitle">Назва завдання</div>
+      <div style="font-size:11px; color:var(--muted); margin-top:4px;" id="modalTaskTarget"></div>
+      <div class="sticker-modal-desc" id="modalTaskDesc" style="margin-top:12px; text-align:left; background:#f8fafc; padding:12px; border-radius:12px; font-size:12px; line-height:1.4;"></div>
+      <button class="sticker-modal-close" onclick="closeTaskModal()">Закрити</button>
+    </div>
+  </div>
+
   <!-- НИЖНЯ НАВІГАЦІЯ -->
   <nav class="bottom">
     <button class="nav active" data-target="home" onclick="show('home')"><span class="ni">🏠</span>Головна</button>
@@ -478,34 +491,33 @@ button{font:inherit}
         return endpoint;
     }
 
-    // 🎯 Базова адреса вашого REST API бекенду на сервері UkrLine
-const API_BASE_URL = 'https://krivbassfight-api.onrender.com';
+    // 🎯 Базова адреса REST API бекенду
+    const API_BASE_URL = 'https://krivbassfight-api.onrender.com';
 
-async function apiCall(endpoint, method = 'GET', body = null) {
-    const headers = { 'Content-Type': 'application/json' };
-    if (initData) headers['x-telegram-init-data'] = initData;
-    if (telegramId) headers['x-telegram-id'] = telegramId;
+    async function apiCall(endpoint, method = 'GET', body = null) {
+        const headers = { 'Content-Type': 'application/json' };
+        if (initData) headers['x-telegram-init-data'] = initData;
+        if (telegramId) headers['x-telegram-id'] = telegramId;
 
-    const options = { method, headers };
-    if (body) options.body = JSON.stringify(body);
+        const options = { method, headers };
+        if (body) options.body = JSON.stringify(body);
 
-    try {
-        // Формуємо повне посилання до UkrLine VPS замість відносного шляху Vercel
-        const fullUrl = endpoint.startsWith('http') ? endpoint : `${API_BASE_URL}${endpoint}`;
-        const response = await fetch(fullUrl, options);
-        
-        if (!response.ok) {
-            console.error(`HTTP error! Status: ${response.status} for URL: ${fullUrl}`);
+        try {
+            const fullUrl = endpoint.startsWith('http') ? endpoint : `${API_BASE_URL}${endpoint}`;
+            const response = await fetch(fullUrl, options);
+            
+            if (!response.ok) {
+                console.error(`HTTP error! Status: ${response.status} for URL: ${fullUrl}`);
+                return null;
+            }
+            
+            const data = await response.json();
+            return data;
+        } catch (error) {
+            console.error('Помилка виконання виклику API:', error);
             return null;
         }
-        
-        const data = await response.json();
-        return data;
-    } catch (error) {
-        console.error('Помилка виконання виклику API:', error);
-        return null;
     }
-}
 
     function getDirectImageUrl(url) {
         if (!url) return '';
@@ -591,7 +603,6 @@ async function apiCall(endpoint, method = 'GET', body = null) {
             currentUserRole = (userData.role || '').toLowerCase();
             window.currentUserRole = currentUserRole;
 
-            // Запам'ятовуємо ID конкретного обраного спортсмена для всіх подальших запитів
             if (userData.athlete_id) {
                 currentAthleteId = userData.athlete_id;
             }
@@ -628,7 +639,7 @@ async function apiCall(endpoint, method = 'GET', body = null) {
         }
     }
 
-    // --- СТІКЕРИ ТА МОДАЛЬНЕ ВІКНО ---
+    // --- СТІКЕРИ ТА МОДАЛЬНІ ВІКНА ---
     function openStickerModal(title, desc, rawSticker) {
         const modal = document.getElementById('stickerModal');
         const titleEl = document.getElementById('modalStickerTitle');
@@ -653,6 +664,39 @@ async function apiCall(endpoint, method = 'GET', body = null) {
 
     function closeStickerModal() {
         const modal = document.getElementById('stickerModal');
+        if (modal) modal.classList.remove('active');
+    }
+
+    function openTaskModal(title, desc, targetText, rawSticker, status) {
+        const modal = document.getElementById('taskModal');
+        const titleEl = document.getElementById('modalTaskTitle');
+        const descEl = document.getElementById('modalTaskDesc');
+        const targetEl = document.getElementById('modalTaskTarget');
+        const picEl = document.getElementById('modalTaskPic');
+
+        if (!modal) return;
+
+        titleEl.textContent = title || 'Завдання';
+        descEl.textContent = desc || 'Опис завдання відсутній.';
+        targetEl.textContent = targetText || '';
+
+        const isDone = status === 'Виконано';
+        const grayClass = isDone ? '' : 'sticker-preview-gray';
+
+        let picHtml = "🥋";
+        if (rawSticker.startsWith('http://') || rawSticker.startsWith('https://')) {
+            const imageUrl = getDirectImageUrl(rawSticker);
+            picHtml = `<img src="${imageUrl}" class="${grayClass}" style="width:90px; height:90px; object-fit:contain;" alt="Sticker">`;
+        } else {
+            picHtml = `<span class="${grayClass}">${rawSticker}</span>`;
+        }
+        
+        picEl.innerHTML = picHtml;
+        modal.classList.add('active');
+    }
+
+    function closeTaskModal() {
+        const modal = document.getElementById('taskModal');
         if (modal) modal.classList.remove('active');
     }
 
@@ -718,28 +762,34 @@ async function apiCall(endpoint, method = 'GET', body = null) {
                 const progressPercent = Math.min(100, (currentVal / targetVal) * 100);
 
                 const rawSticker = t["STIKER ID"] || "🥋";
-                let iconHtml = "🥋";
+                const isDone = status === 'Виконано';
+                const grayClass = isDone ? '' : 'sticker-preview-gray';
 
+                let iconHtml = "🥋";
                 if (rawSticker.startsWith('http://') || rawSticker.startsWith('https://')) {
                     const imageUrl = getDirectImageUrl(rawSticker);
-                    iconHtml = `<img src="${imageUrl}" style="width: 100%; height: 100%; object-fit: cover; border-radius: 12px;" onerror="this.onerror=null; this.src='https://via.placeholder.com/48?text=🥋';" alt="Sticker">`;
+                    iconHtml = `<img src="${imageUrl}" class="${grayClass}" style="width: 100%; height: 100%; object-fit: cover; border-radius: 12px;" onerror="this.onerror=null; this.src='https://via.placeholder.com/48?text=🥋';" alt="Sticker">`;
                 } else {
-                    iconHtml = rawSticker;
+                    iconHtml = `<span class="${grayClass}">${rawSticker}</span>`;
                 }
+
+                const targetText = t["Одиниця виміру"] ? 'Ціль: ' + targetVal + ' ' + t["Одиниця виміру"] : '';
 
                 taskCard.innerHTML = `
                     <div class="task-head">
                         <div class="task-icon" style="overflow: hidden; display: flex; align-items: center; justify-content: center;">${iconHtml}</div>
-                        <div><b>${t["NAME ZAVDAN"]}</b><small>${t["Одиниця виміру"] ? 'Ціль: ' + targetVal + ' ' + t["Одиниця виміру"] : ''}</small></div>
+                        <div><b>${t["NAME ZAVDAN"]}</b><small>${targetText}</small></div>
                         <span class="${statusClass}">${status}</span>
                     </div>
                     <p>${t["OPUS ZAVDAN"] || ''}</p>
                     <div class="progress"><span style="width:${progressPercent}%"></span></div>
                     <div class="task-foot">
                         <span>${currentVal} / ${targetVal}</span>
-                        <span class="reward">🎁 Завдання активне</span>
+                        <span class="reward">🎁 Торкніться, щоб відкрити</span>
                     </div>
                 `;
+
+                taskCard.onclick = () => openTaskModal(t["NAME ZAVDAN"], t["OPUS ZAVDAN"], targetText, rawSticker, status);
                 taskContainer.appendChild(taskCard);
             });
         } else {
@@ -1129,7 +1179,7 @@ async function apiCall(endpoint, method = 'GET', body = null) {
         }
     }
 
-    // --- УПРАВЛІННЯ ГРУПАМИ ТРЕНОРОМ ---
+    // --- УПРАВЛІННЯ ГРУПАМИ ТРЕНЕРОМ ---
     async function loadMyGroups() {
         const selectEl = document.getElementById('mg-group-select');
         if (!selectEl) return;
@@ -1628,19 +1678,18 @@ async function apiCall(endpoint, method = 'GET', body = null) {
             console.warn('Telegram WebApp SDK недоступний', e);
         }
 
-        // Далі продовжується ваш стандартний код ініціалізації...
         initData = tg ? tg.initData : ''; 
         const urlParams = new URLSearchParams(window.location.search);
         telegramId = urlParams.get('tg_id');
         currentAthleteId = urlParams.get('athlete_id');
 
-        // Автоматичний вібровідгук для всіх кнопок Mini App
-    document.addEventListener('click', (event) => {
-        const button = event.target.closest('button, .sticker, .achievement-card-green');
-        if (button && window.Telegram?.WebApp?.HapticFeedback) {
-           window.Telegram.WebApp.HapticFeedback.impactOccurred('light');
-    }
-});
+        // Автоматичний вібровідгук для всіх елементів Mini App
+        document.addEventListener('click', (event) => {
+            const button = event.target.closest('button, .sticker, .task, .achievement-card-green');
+            if (button && window.Telegram?.WebApp?.HapticFeedback) {
+               window.Telegram.WebApp.HapticFeedback.impactOccurred('light');
+            }
+        });
 
         initPeriodDropdown();
         loadProfile();
