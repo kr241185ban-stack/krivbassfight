@@ -1,9 +1,11 @@
 from typing import Optional
 import json
+import asyncio
 from urllib.parse import parse_qsl
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 from services.auth_service import auth_service
 from database.sheets_repository import sheets_repo, normalize_id
 from models.training import AttendanceModel, EvaluationModel
@@ -30,6 +32,10 @@ app.add_middleware(
 )
 
 app.mount("/webapp", StaticFiles(directory="webapp", html=True), name="webapp")
+
+class RemindRequest(BaseModel):
+    athlete_id: str
+    period: str
 
 def extract_telegram_id(init_data: str) -> int:
     try:
@@ -69,7 +75,6 @@ async def api_get_my_profile(
     trainer_name = "Адміністрація"
     kil_stiker = "0"
 
-    # Якщо у параметрах URL передано athlete_id — беремо його, інакше з профілю
     target_athlete_id = athlete_id or user.athlete_id
 
     if target_athlete_id:
@@ -206,7 +211,6 @@ async def api_get_payments(
 
     payments = sheets_repo.get_payments_by_athlete(target_athlete_id) if target_athlete_id else []
 
-    # Визначення назви поточного місяця (наприклад: вересень 2026)
     now = datetime.date.today()
     months_uk = ["січень", "лютий", "березень", "квітень", "травень", "червень", "липень", "серпень", "вересень", "жовтень", "листопад", "грудень"]
     current_period = f"{months_uk[now.month - 1]} {now.year}".lower()
@@ -225,7 +229,6 @@ async def api_get_payments(
         "is_paid_current_month": is_paid_current_month,
         "current_period": current_period
     }
-
 
 @app.post("/api/v1/payments")
 async def api_add_payment(
@@ -258,7 +261,6 @@ async def api_add_payment(
         today_str = datetime.date.today().strftime("%d.%m.%Y")
         payment_id = f"PAY-{uuid.uuid4().hex[:6].upper()}"
 
-        # Отримуємо додаткові зв'язки спортсмена для коректності БД
         athlete = sheets_repo.get_athlete_by_id(athlete_id)
         rep_id = athlete.representative_id if athlete else ""
         grp_id = athlete.group_id if athlete else ""
@@ -278,6 +280,91 @@ async def api_add_payment(
     except Exception as e:
         print(f"Помилка додавання оплати: {e}")
         raise HTTPException(status_code=500, detail="Помилка сервера при збереженні оплати")
+
+@app.get("/api/v1/payments/status")
+async def api_get_payments_status(
+    group_id: str = Query(..., description="Group ID або назва групи"),
+    period: str = Query(..., description="Період у форматі ММ.РРРР (наприклад: 09.2026)"),
+    x_telegram_init_data: str = Header(None),
+    x_telegram_id: str = Header(None)
+):
+    """Отримання зведеного статусу оплат для тренера по конкретній групі за вибраний період"""
+    telegram_id = None
+    if x_telegram_init_data:
+        telegram_id = extract_telegram_id(x_telegram_init_data)
+    elif x_telegram_id and str(x_telegram_id).isdigit():
+        telegram_id = int(x_telegram_id)
+
+    if not telegram_id:
+        raise HTTPException(status_code=401, detail="Не авторизовано")
+
+    user = auth_service.get_user_by_telegram_id(telegram_id)
+    if not user or user.role not in ["admin", "trainer"]:
+        raise HTTPException(status_code=403, detail="Недостатньо прав для перегляду оплат")
+
+    data = await asyncio.to_thread(sheets_repo.get_group_payments_status, group_id, period)
+    return {"status": "success", **data}
+
+@app.post("/api/v1/payments/remind")
+async def api_send_payment_reminder(
+    payload: RemindRequest,
+    x_telegram_init_data: str = Header(None),
+    x_telegram_id: str = Header(None)
+):
+    """Відправка персонального нагадування про оплату в Telegram родичу або спортсмену"""
+    telegram_id = None
+    if x_telegram_init_data:
+        telegram_id = extract_telegram_id(x_telegram_init_data)
+    elif x_telegram_id and str(x_telegram_id).isdigit():
+        telegram_id = int(x_telegram_id)
+
+    if not telegram_id:
+        raise HTTPException(status_code=401, detail="Не авторизовано")
+
+    user = auth_service.get_user_by_telegram_id(telegram_id)
+    if not user or user.role not in ["admin", "trainer"]:
+        raise HTTPException(status_code=403, detail="Недостатньо прав для відправки нагадувань")
+
+    users = await asyncio.to_thread(sheets_repo._get_cached_records, "Користувачі")
+    target_tg_id = None
+
+    norm_target_ath = normalize_id(payload.athlete_id)
+    for u in users:
+        u_ath = normalize_id(str(u.get("Athlete ID") or u.get("athlete_id") or ""))
+        u_status = str(u.get("Статус") or u.get("status") or "").strip().lower()
+
+        if u_ath == norm_target_ath and u_status == "активний":
+            raw_tg = str(u.get("Telegram ID") or u.get("telegram_id") or "").strip().split('.')[0]
+            if raw_tg.isdigit():
+                target_tg_id = int(raw_tg)
+                break
+
+    if not target_tg_id:
+        raise HTTPException(status_code=404, detail="Telegram ID для даного спортсмена не знайдено")
+
+    msg = (
+        f"🔔 <b>Нагадування про оплату</b>\n\n"
+        f"Шановний користувач, будь ласка, не забудьте внести оплату за абонемент "
+        f"за період <b>{payload.period}</b>.\n\n"
+        f"<i>З повагою, тренерський склад СК «Рукопашник».</i>"
+    )
+
+    bot_token = config.bot_token
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    payload_tg = {
+        "chat_id": target_tg_id,
+        "text": msg,
+        "parse_mode": "HTML"
+    }
+
+    try:
+        res = await asyncio.to_thread(requests.post, url, json=payload_tg, timeout=5)
+        if res.status_code == 200:
+            return {"status": "success", "message": "Нагадування успішно надіслано"}
+        else:
+            raise HTTPException(status_code=500, detail=f"Помилка Telegram API ({res.status_code})")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Помилка відправки: {e}")
 
 @app.get("/api/v1/tasks")
 async def api_get_tasks(
@@ -304,7 +391,6 @@ async def api_get_tasks(
 
     all_tasks = sheets_repo.get_tasks_for_athlete(target_athlete_id) if target_athlete_id else []
     
-    # Завдання виводиться, якщо воно Активне і ще не має статусу "виконан" / "виконано"
     active_uncompleted_tasks = [
         t for t in all_tasks
         if str(t.get("LIFE", "")).strip().lower() == "активне"
@@ -399,7 +485,6 @@ async def api_get_schedule(
     schedule = sheets_repo.get_schedule_for_athlete_group(target_group_id)
     return {"status": "success", "schedule": schedule}
 
-
 @app.get("/api/v1/achievements")
 async def api_get_achievements(
     x_telegram_init_data: str = Header(None),
@@ -424,15 +509,13 @@ async def api_get_achievements(
         target_athlete_id = "ATH-01"
 
     all_tasks = sheets_repo.get_tasks_for_athlete(target_athlete_id) if target_athlete_id else []
-    
-    # Стікер показується, якщо статус дорівнює "виконан", "виконано" або "зараховано"
+
     unlocked_achievements = [
         t for t in all_tasks
         if str(t.get("STATUS VIKONAN", "")).strip().lower() in ["виконан", "виконано", "зараховано"]
     ]
     
     return {"status": "success", "achievements": unlocked_achievements}
-
 
 @app.get("/api/v1/results")
 async def api_get_results(
@@ -480,7 +563,6 @@ async def api_get_evaluations(
     if not user:
         raise HTTPException(status_code=403, detail="Користувача не знайдено")
 
-    # Якщо запит робить тренер або адмін — беремо обраний athlete_id із параметрів запиту
     target_athlete_id = user.athlete_id
     if user.role in ["admin", "trainer"]:
         target_athlete_id = athlete_id or user.athlete_id or "ATH-0007"
@@ -520,7 +602,6 @@ async def api_get_attendance_athletes(
 
     return {"status": "success", "athletes": athletes}
 
-
 @app.get("/api/v1/attendance")
 async def api_get_attendance(
     athlete_id: Optional[str] = None,
@@ -547,6 +628,7 @@ async def api_get_attendance(
 
     data = sheets_repo.get_attendance_data(target_athlete_id) if target_athlete_id else {"stats": {}, "history": []}
     return {"status": "success", "attendance": data}
+
 @app.get("/api/v1/my-groups")
 async def api_get_my_groups(
     x_telegram_init_data: str = Header(None),
@@ -568,7 +650,6 @@ async def api_get_my_groups(
 
     groups = sheets_repo.get_groups_for_user(user.role, user.trainer_id)
     return {"status": "success", "groups": groups}
-
 
 @app.get("/api/v1/my-groups/{group_id}/athletes")
 async def api_get_group_athletes(
@@ -592,7 +673,6 @@ async def api_get_group_athletes(
 
     athletes = sheets_repo.get_athletes_by_group(group_id)
     return {"status": "success", "athletes": athletes}
-
 
 @app.post("/api/v1/my-groups/submit")
 async def api_submit_group_data(
@@ -627,7 +707,6 @@ async def api_submit_group_data(
         print(f"Помилка при збереженні групи: {e}")
         raise HTTPException(status_code=500, detail="Помилка сервера при записі в Google Таблицю")
 
-
 @app.get("/api/v1/profile")
 async def api_get_profile(
     athlete_id: Optional[str] = None,
@@ -654,7 +733,6 @@ async def api_get_profile(
 
     profile_data = sheets_repo.get_athlete_profile_details(target_athlete_id)
     
-    # Отримуємо доступні групи для селектора переведення спортсмена
     groups = sheets_repo.get_groups_for_user(user.role, user.trainer_id) if user.role in ["admin", "trainer"] else []
 
     return {
@@ -662,7 +740,6 @@ async def api_get_profile(
         "profile": profile_data,
         "available_groups": groups
     }
-
 
 @app.post("/api/v1/profile/update")
 async def api_update_profile(
@@ -702,7 +779,6 @@ async def api_update_profile(
         print(f"Помилка оновлення профілю: {e}")
         raise HTTPException(status_code=500, detail="Помилка сервера при оновленні профілю")
 
-
 @app.post("/api/v1/messages")
 async def api_send_message_to_trainers(
     data: dict,
@@ -727,7 +803,6 @@ async def api_send_message_to_trainers(
     if not raw_text:
         raise HTTPException(status_code=400, detail="Текст повідомлення порожній")
 
-    # Збираємо дані про відправника
     sender_name = "Спортсмен"
     group_name = "Основна"
 
@@ -736,13 +811,11 @@ async def api_send_message_to_trainers(
         sender_name = profile.get("full_name", "Спортсмен")
         group_name = profile.get("group_name", "Основна")
 
-    # Екрануємо спецсимволи для безпечного HTML
     safe_text = html.escape(raw_text)
     safe_sender = html.escape(sender_name)
     safe_group = html.escape(group_name)
     safe_ath_id = html.escape(user.athlete_id or "-")
 
-    # Формуємо картку повідомлення в HTML-форматі з збереженням Telegram ID для Reply
     msg_text = (
         f"📩 <b>Нове повідомлення з Mini App!</b>\n\n"
         f"👤 <b>Від кого:</b> {safe_sender}\n"
@@ -798,12 +871,10 @@ async def api_get_my_athletes(
     if not user:
         raise HTTPException(status_code=403, detail="Користувача не знайдено")
 
-    # Якщо це спортсмен — повертаємо тільки його
     if user.role == "athlete":
         athlete = sheets_repo.get_athlete_by_id(user.athlete_id)
         return {"status": "success", "athletes": [{"athlete_id": user.athlete_id, "full_name": athlete.full_name if athlete else "Спортсмен"}]}
 
-    # Якщо це представник — шукаємо всіх дітей з його Representative ID
     records = sheets_repo._get_cached_records("Спортсмени")
     my_athletes = []
     
@@ -815,7 +886,6 @@ async def api_get_my_athletes(
             })
 
     return {"status": "success", "athletes": my_athletes}
-
 
 if __name__ == "__main__":
     import uvicorn
