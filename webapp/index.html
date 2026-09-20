@@ -512,6 +512,26 @@ button{font:inherit}
             }
             
             const data = await response.json();
+
+            // 🔤 ГЛОБАЛЬНЕ АВТОМАТИЧНЕ СОРТУВАННЯ ЗА АЛФАВІТОМ:
+            // Якщо у відповіді є масив спортсменів (athletes) — сортуємо його за ПІБ
+            if (data && Array.isArray(data.athletes)) {
+                data.athletes.sort((a, b) => {
+                    const nameA = a.full_name || a.name || '';
+                    const nameB = b.full_name || b.name || '';
+                    return nameA.localeCompare(nameB, 'uk');
+                });
+            }
+
+            // Якщо у відповіді є масив груп (groups) — також сортуємо за назвою
+            if (data && Array.isArray(data.groups)) {
+                data.groups.sort((a, b) => {
+                    const groupA = a.group_name || '';
+                    const groupB = b.group_name || '';
+                    return groupA.localeCompare(groupB, 'uk');
+                });
+            }
+
             return data;
         } catch (error) {
             console.error('Помилка виконання виклику API:', error);
